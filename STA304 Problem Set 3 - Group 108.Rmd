@@ -1,0 +1,188 @@
+---
+title: "Prediction of Popular Vote of the 2020 American Federal Election Using Logistic Regression with Post-stratification"
+author: " Haichuan Xue(1004070346), Jiafei Lyu(1005004727), Wenzhuo Zeng(1005227050)"
+date: "2020.11.02"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r,include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lme4)
+library(pROC)
+
+
+# Loading in the cleaned survey Data
+survey_data <- read_csv("C:/Users/Glendon X/Desktop/UofT/STA304/PS3/Data/survey_data.csv")
+
+# Loading in the cleaned census Data
+census_data <- read_csv("C:/Users/Glendon X/Desktop/UofT/STA304/PS3/Data/census_data.csv")
+
+```
+
+# Prediction of Popular Vote of the 2020 American Federal Election Using Logistic Regression with Post-stratification
+
+## Haichuan Xue(1004070346), Jiafei Lyu(1005004727), Wenzhuo Zeng(1005227050)
+
+
+## 2020.11.02
+
+
+# Model
+We are interested in predicting the outcome of the overall popular vote of the 2020 American federal election. A logistic regression model with post-stratification is introduced to estimate the proportion of voters who are likely to vote for Donald Trump.
+
+
+## Model Specifics
+In our model, demographic information such as race, age, sex, educational attainment, household income, and state are used as predictors. A binary indicator variable, vote trump, is used as our response variable to indicate a voter's voting result. Our model is presented as the following : 
+
+
+```{r, include=FALSE}
+survey_data$sex <- factor(survey_data$sex)
+survey_data$race <- factor(survey_data$race)
+survey_data$household_income <- factor(survey_data$household_income)
+survey_data$education <- factor(survey_data$education)
+survey_data$state <- factor(survey_data$state)
+survey_data$age_int <- factor(survey_data$age_int)
+survey_data$cell <- factor(survey_data$cell)
+glimpse(survey_data)
+```
+
+
+```{r}
+# Creating the Model
+model1 <- glm(vote_trump~ state+age_int+sex+education+race+household_income ,
+                     data = survey_data, 
+                     family=binomial)
+```
+
+```{r, include=FALSE}
+## Discrimination with ROC curve ##
+
+p_svy <- predict(model1, newdata = survey_data, type = "response")
+
+roc_logit_svy <- roc(survey_data$vote_trump ~ p_svy)
+## The True Positive Rate ##
+TPR_svy <- roc_logit_svy$sensitivities
+## The False Positive Rate ##
+FPR_svy <- 1 - roc_logit_svy$specificities
+
+```
+
+## Post-Stratification 
+Post-stratification is a method to adjust sampling weights and the difference between sample and population. It balances the underestimation caused by the underrepresentation of a group. Its concept is to divide the population into cells. Based on the sample, the proposed model is used to estimate the interest within each cell. The weight in each cell is calculated by its proportion in the population. We create cells based on a few demographic variables that we believe to be important in predicting the popular vote. The variables are race, educational attainment, and house income. Race is chosen because some races, especially certain minority races, might have a preference of one candidate over the other. Educational attainment and household income may also be crucial since the two candidates’ campaign styles were different. They also hold different political views on certain topics. People with the dissimilar educational background may resonate with different candidates.
+
+
+```{r, include=FALSE}
+# Here I will perform the post-stratification calculation
+census_data$estimate <-
+  model1 %>%
+  predict(newdata = census_data)
+```
+
+```{r, include=FALSE}
+census_data$estimate <- exp(census_data$estimate)/(1+exp(census_data$estimate))
+
+census_data$trump_pred <- ifelse(census_data$estimate>0.5,1,0)
+
+length(unique(census_data$cell))
+```
+
+
+```{r, include=FALSE}
+y_cells <- numeric(840)
+nam <- unique(census_data$cell)
+
+for (i in 1:840){
+  y_cells[i] <- census_data %>%
+  filter(cell == paste(nam[i])) %>%
+  summarise(sum(trump_pred)/(length(trump_pred)))
+
+}
+
+y_cells <- unlist(y_cells)
+#y_cells
+```
+
+```{r, include=FALSE}
+y_hat_cells <- numeric(840)
+for (i in 1:840){
+  y_hat_cells[i] <- census_data %>%
+    filter(cell == paste(nam[i])) %>%
+    summarise(sum(trump_pred)*y_cells[i])
+}
+y_hat_cells <- unlist(y_hat_cells)
+#y_hat_cells
+```
+
+```{r}
+Y_hat_ps <- sum(y_hat_cells)/(length(census_data$trump_pred))
+
+```
+
+
+# Results
+
+From Figure 1, based on the survey data, the AUC of our model is 0.715. It indicates that the model can distinguish the results between voting for Donald Trump and not voting for Donald Trump at 71.5% of times.
+Through the post-stratification analysis, we propose a logistic regression model, containing six variables, state, age, gender, education level, race, and income of the household, to estimate the proportion of voters who are likely to vote for Donald Trump. The estimated value is 0.39.
+
+```{r}
+plot(FPR_svy, TPR_svy, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, 
+     lwd = 2,col = 'red',main="Figure 1: AUC-ROC curve using survey data")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc_logit_svy),3)))
+```
+
+
+```{r}
+Y_hat_ps
+```
+
+
+# Discussion
+
+## Summary
+
+Prediction of the popular vote of the 2020 American Federal Election is performed using the logistic regression model we propose included race, age, sex, educational attainment, household income, and state as predictors. People who are under age 18, non-American citizens, and have no intention to vote are excluded from the sample. The binary response variable is vote_trump, meaning the variable has value 1 if the person intends to vote for Trump and 0 for Biden. After the model is constructed, a post-stratification modification is used to make reasonable predictions to the final result of the election in real life. The sample population is divided into 840 groups by creating cells containing variables, race, educational attainment, and household income. By calculating the estimated voting probability for Donald Trump of each cell, a weighted average of each cell can be used to make the inference of the population based on its proportion. 
+
+## Conclusion
+
+Based on the estimated proportion of voters in favour of voting for the Republicans, which is 34.24% via the proposed model with the AUC value equaling to 0.715, we predict that the Democrats will win the election. Also, the newest election poll for the Republicans is 43.1%. We can conclude that Biden will be more likely to win the 2020 American Federal Election. 
+
+## Weaknesses
+
+One weakness of the prediction could be that not enough variables were introduced to the model. Also, some observations of the sample were dropped because it contains missing values at certain variable columns. Responses that are not certain about their intention were filtered out from the prediction, but they may have an influence on the election. The linear regression model may not be the best fit because it can distinguish between the voting outcomes at 71.5% of the cases. It may not be accurate enough. There are still many unknown confounding variables potentially influencing the final election result. The final prediction was calculated based on the weighted average of the total sample estimate. The voting policy of America is to count the total votes of the electoral college, which we did not use to approach the final result. 
+
+## Next Steps
+
+Future steps could be done to improve the accuracy of the prediction. A multilevel regression model can be applied to make the prediction via better computational methods. Analyzing by states and then calculating by votes of the electoral college could be done to improve the predicted results. Cells used in the model can be more specific by having combinations of more factors to make a more accurate prediction. 
+
+## Appendix
+## GitHub link
+https://github.com/HaichuanXue/STA304-Problem-Set-3.git
+```{r}
+# Model Results (to Report in Results section)
+knitr::kable(summary(model1)$coef,digits=2)
+```
+
+
+# References
+
+Douglas Bates, Martin Maechler, Ben Bolker, Steve Walker (2015). Fitting Linear Mixed-Effects
+Models Using lme4. Journal of Statistical Software, 67(1), 1-48. doi:10.18637/jss.v067.i01.
+
+Kirk, A., Gutiérrez, P., Hulley-Jones, F., &amp; Adolphe, J. (2020, November 01). US election polls    tracker: Who is leading in swing states, Trump or Biden? Retrieved November 02, 2020, from https://www.theguardian.com/us-news/2020/nov/01/us-election-polls-tracker-who-is-leading-in-swing-states-trump-or-biden
+
+Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686,https://doi.org/10.21105/joss.01686
+
+Xavier Robin, Natacha Turck, Alexandre Hainard, Natalia Tiberti, Frédérique Lisacek,
+Jean-Charles Sanchez and Markus Müller (2011). pROC: an open-source package for R and S+ to
+analyze and compare ROC curves. BMC Bioinformatics, 12, p. 77.  DOI: 10.1186/1471-2105-12-77
+<http://www.biomedcentral.com/1471-2105/12/77/>
+
